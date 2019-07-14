@@ -83,4 +83,34 @@ ex7 = do
     dt6 <- implIntro (Var "p") dt5
     return dt6
 
+-- Predecessor function: (∀x:N).((x ≠ 0) ⇒ N)
+ex8 = do
+    dt0 <- assume (Var "r") (I NatType Zero Zero)
+    dt1 <- assume (Var "z") (Impl (I NatType Zero Zero) Empty)
+    dt2 <- implElim dt1 dt0
+    dt3 <- emptyElim NatType dt2
+    dt4 <- implIntro (Var "z") dt3
+    
+    dt5 <- assume (Var "n") NatType
+    dt6 <- assume (Var "c") (Impl (Impl (I NatType (Var "n") Zero) Empty) NatType)
+    dt7 <- assume (Var "p") (Impl (I NatType (Succ (Var "n")) Zero) Empty)
+    dt8 <- natIntroSucc dt5
+    
+    -- The next two rules ensure that 'p' appears in the derivation chain leading to the last statement
+    dt8i <- andIntro dt7 dt8
+    dt8e <- andElimSnd dt8i
+    dt9 <- implIntro (Var "p") dt8e
+    
+    -- Same situation here (TODO: maybe have a special ⇒ rule to avoid this)
+    dt9i <- andIntro dt6 dt9
+    dt9e <- andElimSnd dt9i
+    dt10 <- implIntro (Var "c") dt9e
+    
+    dt11 <- forallIntro (Var "n") dt10
+    
+    dt12 <- natElim dt4 dt11
+    
+    return dt12
+    
+    
     

@@ -7,8 +7,6 @@ import Data.Maybe
 
 -- Syntax
 
-{- TODO: make Type a class instead of a data type
-   for better typechecking and extensibility -}
 data Type = Generic String |
             And Type Type |
             Or Type Type |
@@ -19,8 +17,7 @@ data Type = Generic String |
             TypeSubst Type Obj Obj |
             BoolType |
             NatType |
-            TreeType |
-            EqType
+            I Type Obj Obj
             deriving Eq
             
 neg a = Impl a Empty
@@ -41,7 +38,10 @@ data Obj = Var String |
            F |
            If Obj Obj Obj |
            Zero |
-           Succ Obj
+           Succ Obj |
+           Prim Obj Obj Obj |
+           R Obj |
+           J Obj Obj
            deriving Eq
 
 data St = St Obj Type | Discharged St deriving Eq
@@ -62,11 +62,15 @@ instance Show Type where
     show (Forall x a pt) = quantifShow "∀" x a pt
     show (Exists x a pt) = quantifShow "∃" x a pt
     show (TypeSubst t x to) = substShow t x to
+    show BoolType = "bool"
+    show NatType = "N"
+    show (I at a b) = relShow "I" [show at, show a, show b]
     
 unaryOpShow op x = "(" ++ op ++ show x ++ ")"
 binaryOpShow op x y = "(" ++ show x ++ " " ++ op ++ " " ++ show y ++ ")"
 quantifShow op x a pt = "(" ++ op ++ show x ++ ":" ++ show a ++ ")." ++ show pt
 substShow t x to = show t ++ "[" ++ show to ++ "/" ++ show x ++ "]"
+relShow rel args = rel ++ "(" ++ (intercalate ", " args) ++ ")"
 
 instance Show Obj where
     show (Var x) = x
@@ -78,7 +82,16 @@ instance Show Obj where
     show (Lambda x e) = "λ" ++ show x ++ "." ++ show e
     show (Appl q a) = "(" ++ show q ++ " " ++ show a ++ ")"
     show (Cases p f g) = "cases " ++ show p ++ " " ++ show f ++ " " ++ show g
+    show (Abort p) = "abort(" ++ show p ++ ")"
     show (Subst p x to) = substShow p x to
+    show T = "true"
+    show F = "false"
+    show (If c t f) = "if" ++ show c ++ " then " ++ show t ++ " else " ++ show f
+    show Zero = "0"
+    show (Succ n) = "succ " ++ show n
+    show (Prim n c f) = "prim " ++ show n ++ " " ++ show c ++ " " ++ show f
+    show (R a) = relShow "R" [show a]
+    show (J a b) = relShow "J" [show a, show b]
     
 instance Show St where
     show (St x a) = show x ++ " : " ++ show a
@@ -97,7 +110,8 @@ instance Show InfErr where
 
 subst :: Obj -> Obj -> Obj -> Obj
 subst e x to = if x == to then e else if e == x then to else case e of
-    (Var p) -> (Subst (Var p) x to)
+    y@(Var _) -> (Subst y x to)
+    y@(Subst _ _ _) -> (Subst y x to)
     (Pr e1 e2) -> Pr (subst e1 x to) (subst e2 x to)
     (Fst e) -> Fst (subst e x to)
     (Snd e) -> Snd (subst e x to)
@@ -106,16 +120,26 @@ subst e x to = if x == to then e else if e == x then to else case e of
     (Lambda e1 e2) -> Lambda (subst e1 x to) (subst e2 x to)
     (Appl e1 e2) -> Appl (subst e1 x to) (subst e2 x to)
     (Cases e1 e2 e3) -> Cases (subst e1 x to) (subst e2 x to) (subst e3 x to)
+    (Abort e) -> Abort (subst e x to)
+    (If e1 e2 e3) -> If (subst e1 x to) (subst e2 x to) (subst e3 x to)
+    (Succ e) -> Succ (subst e x to)
+    (Prim e1 e2 e3) -> Prim (subst e1 x to) (subst e2 x to) (subst e3 x to)
+    (R e) -> R (subst e x to)
+    (J e1 e2) -> J (subst e1 x to) (subst e2 x to)
+    e -> e
         
 typeSubst :: Type -> Obj -> Obj -> Type
 typeSubst e x to = if x == to then e else case e of
-    (Generic a) -> (TypeSubst (Generic a) x to)
+    t@(Generic a) -> (TypeSubst t x to)
+    t@(TypeSubst _ _ _) -> (TypeSubst t x to)
     (And a b) -> And (typeSubst a x to) (typeSubst b x to)
     (Or a b) -> Or (typeSubst a x to) (typeSubst b x to)
     (Impl a b) -> Impl (typeSubst a x to) (typeSubst b x to)
     Empty -> Empty
     (Forall xe xt pt) -> if xe == x then (Forall to xt pt) else e
     (Exists xe xt pt) -> if xe == x then (Forall to xt pt) else e
+    (I t a b) -> I (typeSubst t x to) (subst a x to) (subst b x to)
+    e -> e
 
 roots :: DT -> [St]
 roots (DT s []) = [s]
@@ -265,9 +289,51 @@ boolElim :: DT -> DT -> DT -> Either InfErr DT
 boolElim dt1@(DT (St tr BoolType) _) dt2@(DT (St c ct) _) dt3@(DT (St d cct) _)
     | ct /= cct = Left $ makeDTErrMsg "Cannot apply bool elimination. Type mismatch." [dt1, dt2, dt3]
     | otherwise = Right $ DT (St (If tr c d) ct) [dt1, dt2, dt3]
+boolElim dt1 dt2 dt3 = Left $ makeDTErrMsg "Cannot apply bool elimination" [dt1, dt2, dt3]
     
 boolComp :: Obj -> Either InfErr Obj
 boolComp (If T c d) = Right c
 boolComp (If F c d) = Right d
 boolComp x = Left $ makeObjErrMsg "Cannot apply bool computation" [x]
+
+
+-- NatType
+
+natIntroZero :: DT -> Either InfErr DT
+natIntroZero dt = Right $ DT (St Zero NatType) [dt]
+
+natIntroSucc :: DT -> Either InfErr DT
+natIntroSucc dt@(DT (St n NatType) _) = Right $ DT (St (Succ n) NatType) [dt]
+natIntroSucc x = Left $ makeObjErrMsg "Cannot apply N introduction" [x]
+
+natElim :: DT -> DT -> Either InfErr DT
+natElim dt1@(DT (St c ct) _) dt2@(DT (St f (Forall n NatType (Impl cnt cst))) _)
+    | ((typeSubst cnt n (Succ n)) /= cst) || ((typeSubst cnt n Zero) /= ct) =
+        Left $ makeDTErrMsg "Cannot apply N elimination. Type mismatch." [dt1, dt2]
+    | otherwise = Right $ DT (St (Lambda n (Prim n c f)) (Forall n NatType cnt)) [dt1, dt2]
+natElim dt1 dt2 = Left $ makeObjErrMsg "Cannot apply N elimination. Type mismatch." [dt1, dt2]
+        
+natComp :: Obj -> Either InfErr Obj
+natComp (Prim Zero c f) = Right $ c
+natComp (Prim (Succ n) c f) = Right $ (Appl (Appl f n) (Prim n c f))
+natComp x = Left $ makeObjErrMsg "Cannot apply N computation" [x]
+
+
+-- Eq
+
+eqIntro :: DT -> Either InfErr DT
+eqIntro dt@(DT (St a at) _) = Right $ DT (St (R a) (I at a a)) [dt]
+eqIntro dt = Left $ makeDTErrMsg "Cannot apply eq introduction" [dt]
+
+eqElim :: DT -> DT -> Either InfErr DT
+eqElim dt1@(DT (St c (I at a b)) _) 
+       dt2@(DT (St d (TypeSubst (TypeSubst (TypeSubst ct x a1) y a2) z (R a3))) _)
+       | (a /= a1) || (a /= a2) || (a /= a3) = 
+           Left $ makeDTErrMsg "Cannot apply eq elimination. Type mismatch." [dt1, dt2]
+       | otherwise = Right $ DT (St (J c d) (TypeSubst (TypeSubst (TypeSubst ct x a) y b) z c)) [dt1, dt2]
+eqElim dt1 dt2 = Left $ makeDTErrMsg "Cannot apply eq elimination" [dt1, dt2]
+
+eqComp :: Obj -> Either InfErr Obj
+eqComp (J (R a) d) = Right d
+eqComp x = Left $ makeObjErrMsg "Cannot apply eq computation" [x]
 
