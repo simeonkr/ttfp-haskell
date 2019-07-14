@@ -19,7 +19,7 @@ data Type = Generic String |
             NatType |
             I Type Obj Obj
             deriving Eq
-            
+
 neg a = Impl a Empty
 equiv a b = (And (Impl a b) (Impl b a))
 
@@ -65,7 +65,7 @@ instance Show Type where
     show BoolType = "bool"
     show NatType = "N"
     show (I at a b) = relShow "I" [show at, show a, show b]
-    
+
 unaryOpShow op x = "(" ++ op ++ show x ++ ")"
 binaryOpShow op x y = "(" ++ show x ++ " " ++ op ++ " " ++ show y ++ ")"
 quantifShow op x a pt = "(" ++ op ++ show x ++ ":" ++ show a ++ ")." ++ show pt
@@ -92,16 +92,16 @@ instance Show Obj where
     show (Prim n c f) = "prim " ++ show n ++ " " ++ show c ++ " " ++ show f
     show (R a) = relShow "R" [show a]
     show (J a b) = relShow "J" [show a, show b]
-    
+
 instance Show St where
     show (St x a) = show x ++ " : " ++ show a
     show (Discharged s) = "[" ++ show s ++ "]"
-    
+
 instance Show DT where
-    show dt = "\n" ++ show_ 0 dt where        
+    show dt = "\n" ++ show_ 0 dt where
         show_ indent (DT s dts) = concat (replicate indent "  ") ++ show s ++
             if null dts then " *" else "\n" ++ intercalate "\n" (map (show_ (indent+1)) dts)
-    
+
 instance Show InfErr where
     show (InfErr s) = "Inference error: " ++ s
 
@@ -127,7 +127,7 @@ subst e x to = if x == to then e else if e == x then to else case e of
     (R e) -> R (subst e x to)
     (J e1 e2) -> J (subst e1 x to) (subst e2 x to)
     e -> e
-        
+
 typeSubst :: Type -> Obj -> Obj -> Type
 typeSubst e x to = if x == to then e else case e of
     t@(Generic a) -> (TypeSubst t x to)
@@ -146,18 +146,18 @@ roots (DT s []) = [s]
 roots (DT s xs) = concat $ map roots xs
 
 lookupObj :: Obj -> DT -> Maybe Type
-lookupObj x0 (DT s@(St x t) dt) = if x == x0 then Just t 
+lookupObj x0 (DT s@(St x t) dt) = if x == x0 then Just t
                                   else let allFound = mapMaybe (lookupObj x0) dt in
                                       if null allFound then Nothing else Just $ head allFound
 lookupObj x0 (DT (Discharged (St x t)) dt) = lookupObj x0 (DT (St x t) dt)
 
 discharge :: Obj -> DT -> DT
-discharge x0 (DT s@(St x t) dt) = DT (if x == x0 then Discharged s else s) 
+discharge x0 (DT s@(St x t) dt) = DT (if x == x0 then Discharged s else s)
                                      (map (discharge x0) dt)
 discharge x0 (DT s@(Discharged (St x t)) dt) = DT s (map (discharge x0) dt)
-                                     
-makeDTErrMsg msg dts = InfErr $ msg ++ "\nDerivation trees are:\n" 
-                              ++ intercalate "\n" (map show dts) ++ "\n"                              
+
+makeDTErrMsg msg dts = InfErr $ msg ++ "\nDerivation trees are:\n"
+                              ++ intercalate "\n" (map show dts) ++ "\n"
 makeObjErrMsg msg obj = InfErr $ msg ++ " (" ++ show obj ++ ")"
 
 
@@ -247,9 +247,9 @@ forallIntro x dt@(DT (St p pt) _) = let am = lookupObj x dt in
 forallIntro _ dt = Left $ makeDTErrMsg "Cannot apply ∀ introduction" [dt]
 
 forallElim :: DT -> DT -> Either InfErr DT
-forallElim dt1@(DT (St a at) _) dt2@(DT (St f (Forall x aat pt)) _) = 
+forallElim dt1@(DT (St a at) _) dt2@(DT (St f (Forall x aat pt)) _) =
     Right $ DT (St (Appl f a) (typeSubst pt x a)) [dt1, dt2]
-    
+
 forallComp :: Obj -> Either InfErr Obj
 forallComp (Appl (Lambda x p) a) = Right $ subst p x a
 forallComp x = Left $ makeObjErrMsg "Cannot apply ∀ computation" [x]
@@ -258,16 +258,16 @@ forallComp x = Left $ makeObjErrMsg "Cannot apply ∀ computation" [x]
 -- Exists
 
 existsIntro :: Obj -> DT -> DT -> Either InfErr DT
-existsIntro x dt1@(DT (St a at) _) dt2@(DT (St p pt) _) = 
+existsIntro x dt1@(DT (St a at) _) dt2@(DT (St p pt) _) =
     Right $ DT (St (Pr a p) (Exists x at (typeSubst pt a x))) [dt1, dt2]
-existsIntro _ dt1 dt2 = Left $ makeDTErrMsg "Cannot apply ∃ introduction" [dt1, dt2] 
-    
+existsIntro _ dt1 dt2 = Left $ makeDTErrMsg "Cannot apply ∃ introduction" [dt1, dt2]
+
 existsElim1 :: DT -> Either InfErr DT
 existsElim1 dt@(DT (St p (Exists x a pt)) _) = Right $ DT (St (Fst p) a) [dt]
 existsElim1 dt = Left $ makeDTErrMsg "Cannot apply ∃ elimination (1)" [dt]
 
 existsElim2 :: DT -> Either InfErr DT
-existsElim2 dt@(DT (St p (Exists x a pt)) _) = 
+existsElim2 dt@(DT (St p (Exists x a pt)) _) =
     Right $ DT (St (Snd p) (typeSubst pt x (Fst p))) [dt]
 existsElim2 dt = Left $ makeDTErrMsg "Cannot apply ∃ elimination (2)" [dt]
 
@@ -290,7 +290,7 @@ boolElim dt1@(DT (St tr BoolType) _) dt2@(DT (St c ct) _) dt3@(DT (St d cct) _)
     | ct /= cct = Left $ makeDTErrMsg "Cannot apply bool elimination. Type mismatch." [dt1, dt2, dt3]
     | otherwise = Right $ DT (St (If tr c d) ct) [dt1, dt2, dt3]
 boolElim dt1 dt2 dt3 = Left $ makeDTErrMsg "Cannot apply bool elimination" [dt1, dt2, dt3]
-    
+
 boolComp :: Obj -> Either InfErr Obj
 boolComp (If T c d) = Right c
 boolComp (If F c d) = Right d
@@ -312,7 +312,7 @@ natElim dt1@(DT (St c ct) _) dt2@(DT (St f (Forall n NatType (Impl cnt cst))) _)
         Left $ makeDTErrMsg "Cannot apply N elimination. Type mismatch." [dt1, dt2]
     | otherwise = Right $ DT (St (Lambda n (Prim n c f)) (Forall n NatType cnt)) [dt1, dt2]
 natElim dt1 dt2 = Left $ makeObjErrMsg "Cannot apply N elimination. Type mismatch." [dt1, dt2]
-        
+
 natComp :: Obj -> Either InfErr Obj
 natComp (Prim Zero c f) = Right $ c
 natComp (Prim (Succ n) c f) = Right $ (Appl (Appl f n) (Prim n c f))
@@ -326,9 +326,9 @@ eqIntro dt@(DT (St a at) _) = Right $ DT (St (R a) (I at a a)) [dt]
 eqIntro dt = Left $ makeDTErrMsg "Cannot apply eq introduction" [dt]
 
 eqElim :: DT -> DT -> Either InfErr DT
-eqElim dt1@(DT (St c (I at a b)) _) 
+eqElim dt1@(DT (St c (I at a b)) _)
        dt2@(DT (St d (TypeSubst (TypeSubst (TypeSubst ct x a1) y a2) z (R a3))) _)
-       | (a /= a1) || (a /= a2) || (a /= a3) = 
+       | (a /= a1) || (a /= a2) || (a /= a3) =
            Left $ makeDTErrMsg "Cannot apply eq elimination. Type mismatch." [dt1, dt2]
        | otherwise = Right $ DT (St (J c d) (TypeSubst (TypeSubst (TypeSubst ct x a) y b) z c)) [dt1, dt2]
 eqElim dt1 dt2 = Left $ makeDTErrMsg "Cannot apply eq elimination" [dt1, dt2]
